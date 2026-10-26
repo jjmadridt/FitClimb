@@ -22,15 +22,15 @@ function setRef(code){
 function editSet(code){
  const x=setRef(code);if(!x)return;
  const cardio=x.unit==='minutes';
- const exUnit=exerciseUnit(x.name);
- const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':exUnit})`,String(cardio?x.weight:toDisplay(x.weight,exUnit)));
+ const exUnit=exerciseUnit(x.name),distUnit=distanceUnit(x.name);
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?distUnit:exUnit})`,String(cardio?distanceShown(x.weight,distUnit):toDisplay(x.weight,exUnit)));
  if(weight===null)return;
  const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
  if(count===null)return;
  const w=Number(weight),c=Number(count);
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
- db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
+ db.logs[x._index]={...before,weight:cardio?distanceKm(w,distUnit):toLbs(w,exUnit),count:c};
  db.repDefaults[x.name]=c;
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
@@ -68,6 +68,7 @@ db.started=db.started||{};
 db.setTargets=db.setTargets||{};
 db.exerciseUnits=db.exerciseUnits||{};
 db.repDefaults=db.repDefaults||{};
+db.distanceUnits=db.distanceUnits||{};
 let lastSetAction=null;
 const EN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ES=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
@@ -85,6 +86,9 @@ const converted=n=>db.settings.unit==='kg'?(n/2.2046226218):n;
 const displayed=n=>Number(converted(n).toFixed(2));
 const lbs=n=>db.settings.unit==='kg'?n*2.2046226218:n;
 const exerciseUnit=n=>db.exerciseUnits[n]||db.settings.unit;
+const distanceUnit=n=>db.distanceUnits[n]||'km';
+const distanceShown=(km,u)=>Number((u==='mi'?km/1.609344:km).toFixed(2));
+const distanceKm=(v,u)=>u==='mi'?v*1.609344:v;
 const toDisplay=(n,u)=>Number((u==='kg'?n/2.2046226218:n).toFixed(2));
 const toLbs=(n,u)=>u==='kg'?n*2.2046226218:n;
 const completed=(d,n)=>db.completed.some(x=>x.day===d&&x.session===n);
@@ -114,9 +118,11 @@ function muscleArt(n){
 }
 function render(){
  document.documentElement.lang=db.settings.lang;
- document.getElementById('tabs').innerHTML=['Workout','Progress','Body','Backup','Settings'].map(t=>`<button class="${t===tab?'active':''}" data-tab="${t}">${({Workout:tr('Workout','Rutina'),Progress:tr('Progress','Progreso'),Body:tr('Body','Cuerpo'),Backup:tr('Backup','Respaldo'),Settings:tr('Settings','Ajustes')})[t]}</button>`).join('');
+ document.getElementById('language-toggle').value=db.settings.lang;
+ document.getElementById('language-toggle').onchange=e=>{db.settings.lang=e.target.value;save();render()};
+ document.getElementById('tabs').innerHTML=['Workout','Progress','Body','Backup'].map(t=>`<button class="${t===tab?'active':''}" data-tab="${t}">${({Workout:tr('Workout','Rutina'),Progress:tr('Progress','Progreso'),Body:tr('Body','Cuerpo'),Backup:tr('Backup','Respaldo')})[t]}</button>`).join('');
  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});
- if(tab==='Workout')workout();if(tab==='Progress')progress();if(tab==='Body')body();if(tab==='Backup')backup();if(tab==='Settings')settings();
+ if(tab==='Workout')workout();if(tab==='Progress')progress();if(tab==='Body')body();if(tab==='Backup')backup();
 }
 function settings(){
  app.innerHTML=`<h2>${tr('Settings','Ajustes')}</h2><div class="card"><label>${tr('Language','Idioma')}</label><select id="lang"><option value="en">English</option><option value="es">Español</option></select><label style="margin-top:14px">${tr('Weight unit','Unidad de peso')}</label><select id="unit"><option value="lb">lb</option><option value="kg">kg</option></select><p class="muted">${tr('Changing units converts displayed weights; stored values remain consistent.','Cambiar unidades convierte los pesos mostrados; los valores guardados se conservan.')}</p></div>`;
@@ -135,6 +141,12 @@ function workout(){
  ${!locked?`<button class="primary full" id="finish">${tr('Finish session / start next','Finalizar sesión / iniciar siguiente')}</button>`:''}`;
  document.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{day=b.dataset.day;render()});
  document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>logExercise(Number(b.dataset.log)));
+ document.querySelectorAll('[data-distanceunit]').forEach(b=>b.onchange=()=>{
+   const i=Number(b.dataset.distanceunit),name=PROGRAM[day].ex[i][0],prev=distanceUnit(name),next=b.value;
+   const field=$('weight-'+i),v=field?field.value:'';
+   db.distanceUnits[name]=next;save();render();
+   if(v!==''&&$('weight-'+i))$('weight-'+i).value=String(distanceShown(distanceKm(Number(v),prev),next));
+ });
  document.querySelectorAll('[data-reps]').forEach(el=>el.onchange=()=>{
    const i=Number(el.dataset.reps),name=PROGRAM[day].ex[i][0],v=Number(el.value);
    if(Number.isFinite(v)&&v>0){db.repDefaults[name]=v;save();}
@@ -162,16 +174,17 @@ function workout(){
 function exercise(e,i,locked){
  const [name,equipment,unit,sets,min,max]=e;
  const count=target(day,name),past=relevant(day,name),today=current(day,name),last=past.length?past[past.length-1]:null;
- const cardio=unit==='minutes',exUnit=exerciseUnit(name),weight=last?toDisplay(last.weight,exUnit):'';
+ const cardio=unit==='minutes',exUnit=exerciseUnit(name),distUnit=distanceUnit(name),weight=last?toDisplay(last.weight,exUnit):'';
  const completedSets=today.length;
  return `<section class="card exercise"><div class="row"><div><h3>${i+1}. ${esc(exerciseName(name))}</h3><small>${esc(equipment)}</small><div><span class="pill">${min}${max!==min?'–'+max:''} ${esc(unit)}</span></div></div>${muscleArt(name)}</div>
+ ${cardio?`<div class="row" style="margin-top:8px"><label>${tr('Distance unit','Unidad de distancia')}</label><select data-distanceunit="${i}" style="width:100px" ${locked?'disabled':''}><option value="km" ${distUnit==='km'?'selected':''}>km</option><option value="mi" ${distUnit==='mi'?'selected':''}>mi</option></select></div>`:''}
  ${!cardio?`<div class="row" style="margin-top:8px"><label>${tr('Exercise weight unit','Unidad de peso del ejercicio')}</label><select data-exunit="${i}" style="width:100px" ${locked?'disabled':''}><option value="lb" ${exUnit==='lb'?'selected':''}>lb</option><option value="kg" ${exUnit==='kg'?'selected':''}>kg</option></select></div>`:''}
  <div class="row" style="margin-top:8px"><label>${tr('Planned sets (1–15)','Series planeadas (1–15)')}</label><select data-target="${i}" style="width:90px" ${locked?'disabled':''}>${Array.from({length:15},(_,j)=>`<option value="${j+1}" ${count===j+1?'selected':''}>${j+1}</option>`).join('')}</select></div>
  <div class="pill">${completedSets}/${count} ${tr('logged','registradas')}</div>
- ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+exUnit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" data-reps="${i}" type="number" min="1" value="${db.repDefaults[name]??(last?last.count:min)}"></div></div>
+ ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance','Distancia')+' ('+distUnit+')':tr('Weight','Peso')+' ('+exUnit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?distanceShown(last.weight,distUnit):''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" data-reps="${i}" type="number" min="1" value="${db.repDefaults[name]??(last?last.count:min)}"></div></div>
 
  <button class="primary full" data-log="${i}" ${completedSets>=count?'disabled':''}>+ ${tr('Log set','Registrar serie')}</button>`:''}
- ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?x.weight:toDisplay(x.weight,exUnit)} ${cardio?'km':exUnit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
+ ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?distanceShown(x.weight,distUnit):toDisplay(x.weight,exUnit)} ${cardio?distUnit:exUnit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
  ${!locked&&lastSetAction&&lastSetAction.day===day&&lastSetAction.session===session(day)&&lastSetAction.name===name?`<button class="undo-set" data-undo="${i}">${tr('Undo last set change','Deshacer último cambio')}</button>`:''}</section>`;
 }
 function logExercise(i){
@@ -180,7 +193,7 @@ function logExercise(i){
  if(current(day,e[0]).length>=target(day,e[0]))return alert(tr('Planned sets reached.','Series planeadas completas.'));
  const raw=Number($('weight-'+i).value||0),count=Number($('count-'+i).value);
  if(!Number.isFinite(raw)||raw<0||!Number.isFinite(count)||count<=0)return alert(tr('Enter valid values.','Ingresa valores válidos.'));
- const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:toLbs(raw,exerciseUnit(e[0])),count};
+ const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?distanceKm(raw,distanceUnit(e[0])):toLbs(raw,exerciseUnit(e[0])),count};
  db.logs.push(record);
  db.repDefaults[e[0]]=count;
  lastSetAction={type:'add',record,day,session:n,name:e[0]};
@@ -198,15 +211,15 @@ function setRef(code){
 function editSet(code){
  const x=setRef(code);if(!x)return;
  const cardio=x.unit==='minutes';
- const exUnit=exerciseUnit(x.name);
- const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':exUnit})`,String(cardio?x.weight:toDisplay(x.weight,exUnit)));
+ const exUnit=exerciseUnit(x.name),distUnit=distanceUnit(x.name);
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?distUnit:exUnit})`,String(cardio?distanceShown(x.weight,distUnit):toDisplay(x.weight,exUnit)));
  if(weight===null)return;
  const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
  if(count===null)return;
  const w=Number(weight),c=Number(count);
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
- db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
+ db.logs[x._index]={...before,weight:cardio?distanceKm(w,distUnit):toLbs(w,exUnit),count:c};
  db.repDefaults[x.name]=c;
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
@@ -233,7 +246,7 @@ function undoSet(i){
 }
 function renderHistory(){
  let name=$('history-select').value,rows=db.logs.filter(x=>x.name===name).slice(-30).reverse();
- $('history').innerHTML=`<h3>${esc(exerciseName(name))}</h3><div class="history">${rows.map(x=>`${esc(x.date)} · ${x.unit==='minutes'?x.weight:toDisplay(x.weight,exerciseUnit(x.name))} ${x.unit==='minutes'?'km':exerciseUnit(x.name)} × ${x.count} ${esc(x.unit)}`).join('<hr>')}</div>`;
+ $('history').innerHTML=`<h3>${esc(exerciseName(name))}</h3><div class="history">${rows.map(x=>`${esc(x.date)} · ${x.unit==='minutes'?distanceShown(x.weight,distanceUnit(x.name)):toDisplay(x.weight,exerciseUnit(x.name))} ${x.unit==='minutes'?distanceUnit(x.name):exerciseUnit(x.name)} × ${x.count} ${esc(x.unit)}`).join('<hr>')}</div>`;
 }
 function progress(){
  let exercises=[...new Set(db.logs.map(x=>x.name))];
@@ -241,13 +254,14 @@ function progress(){
  if($('history-select')){$('history-select').onchange=renderHistory;renderHistory()}
 }
 function body(){
- app.innerHTML=`<h2>${tr('Body composition','Composición corporal')}</h2><div class="card"><div class="grid"><div><label>${tr('Waist (inches)','Cintura (pulgadas)')}</label><input id="waist" type="number" step="0.1"></div><div><label>${tr('Body weight','Peso corporal')} (${db.settings.unit})</label><input id="mass" type="number" step="0.1"></div></div><button class="primary full" id="save-body">${tr('Save measurement','Guardar medición')}</button></div><div class="card"><h3>${tr('Measurement history','Historial')}</h3><div class="history">${db.body.slice().reverse().map(x=>`${esc(x.date)} · ${tr('Waist','Cintura')} ${x.waist??'—'} in · ${tr('Weight','Peso')} ${x.mass==null?'—':displayed(x.mass)} ${db.settings.unit}`).join('<hr>')||tr('No measurements yet.','Sin mediciones.')}</div></div>`;
+ app.innerHTML=`<h2>${tr('Body composition','Composición corporal')}</h2><div class="card"><label>${tr('Body weight unit','Unidad de peso corporal')}</label><select id="body-unit"><option value="lb" ${db.settings.unit==='lb'?'selected':''}>lb</option><option value="kg" ${db.settings.unit==='kg'?'selected':''}>kg</option></select><div class="grid" style="margin-top:12px"><div><label>${tr('Waist (inches)','Cintura (pulgadas)')}</label><input id="waist" type="number" step="0.1"></div><div><label>${tr('Body weight','Peso corporal')} (${db.settings.unit})</label><input id="mass" type="number" step="0.1"></div></div><button class="primary full" id="save-body">${tr('Save measurement','Guardar medición')}</button></div><div class="card"><h3>${tr('Measurement history','Historial')}</h3><div class="history">${db.body.slice().reverse().map(x=>`${esc(x.date)} · ${tr('Waist','Cintura')} ${x.waist??'—'} in · ${tr('Weight','Peso')} ${x.mass==null?'—':displayed(x.mass)} ${db.settings.unit}`).join('<hr>')||tr('No measurements yet.','Sin mediciones.')}</div></div>`;
+ $('body-unit').onchange=e=>{db.settings.unit=e.target.value;save();render()};
  $('save-body').onclick=()=>{let waist=$('waist').value,mass=$('mass').value;if(!waist&&!mass)return;if((waist&&Number(waist)<=0)||(mass&&Number(mass)<=0))return;db.body.push({date:new Date().toISOString().slice(0,10),waist:waist?Number(waist):null,mass:mass?lbs(Number(mass)):null});save();render()};
 }
 // Override backup import to retain v1.1 settings and completed session metadata.
 function backup(){
  app.innerHTML=`<h2>${tr('Backup and restore','Respaldo y restauración')}</h2><div class="card"><p>${tr('Your data stays on this device. Export a backup before changing phones or clearing browser data.','Tus datos permanecen en este dispositivo. Exporta un respaldo antes de cambiar de teléfono o borrar datos.')}</p><button class="primary full" id="export">${tr('Download JSON backup','Descargar respaldo JSON')}</button><label style="margin-top:16px">${tr('Restore backup','Restaurar respaldo')}</label><input type="file" id="import" accept=".json,application/json"></div>`;
  $('export').onclick=()=>{const blob=new Blob([JSON.stringify({version:'1.1',...db},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fitclimb-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
- $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{},exerciseUnits:d.exerciseUnits||{},repDefaults:d.repDefaults||{}};save();render()}}catch(e){alert(e.message)}};
+ $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{},exerciseUnits:d.exerciseUnits||{},repDefaults:d.repDefaults||{},distanceUnits:d.distanceUnits||{}};save();render()}}catch(e){alert(e.message)}};
 }
 render();
