@@ -7,7 +7,7 @@ Friday:{title:'Recovery',ex:[]},Saturday:{title:'Team ride',ex:[['Outdoor ride',
 const KEY='fitclimb-v1';let db;try{db=JSON.parse(localStorage.getItem(KEY))}catch(e){}db=db&&Array.isArray(db.logs)?db:{logs:[],body:[],session:{}};let tab='Workout',day=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date().getDay()];const app=document.getElementById('app');const $=id=>document.getElementById(id);const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(db))}catch(e){alert('Storage unavailable: export a backup.')}};const session=d=>db.session[d]||1;const relevant=(d,n)=>db.logs.filter(x=>x.day===d&&x.name===n);const current=(d,n)=>relevant(d,n).filter(x=>x.session===session(d));
 function render(){document.getElementById('tabs').innerHTML=['Workout','Progress','Body','Backup'].map(t=>`<button class="${t===tab?'active':''}" data-tab="${t}">${t}</button>`).join('');document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});if(tab==='Workout')workout();if(tab==='Progress')progress();if(tab==='Body')body();if(tab==='Backup')backup()}
 function workout(){let p=PROGRAM[day];app.innerHTML=`<div class="days">${Object.keys(PROGRAM).map(d=>`<button class="${day===d?'active':''}" data-day="${d}">${d.slice(0,3)}</button>`).join('')}</div><div class="row"><div><h2>${p.title}</h2><small>${day} • Session ${session(day)}</small></div><span class="pill">${p.ex.length} exercises</span></div>${p.ex.length?p.ex.map((e,i)=>exercise(e,i)).join(''):'<div class="card">Recovery day. Walking or mobility is optional.</div>'}${p.ex.length?'<button class="full" id="finish">Finish session / start next</button>':''}`;document.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{day=b.dataset.day;render()});document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>logExercise(Number(b.dataset.log)));if($('finish'))$('finish').onclick=()=>{if(confirm('Start a new session for '+day+'?')){db.session[day]=session(day)+1;save();render()}}}
-function exercise(e,i){let [name,equipment,unit,sets,min,max]=e;let past=relevant(day,name),today=current(day,name),last=past.length?past[past.length-1]:null;let advice=!last?'Establish a comfortable baseline with controlled form.':last.rir>=2&&last.count>=max?'At the top of the rep range: if all sets were controlled, consider 2–5% more load next session.':last.count<min?'Below target: maintain or reduce resistance and prioritize form.':'Keep the same load and work toward the top of the range.';let cardio=unit==='minutes';return `<section class="card exercise"><div class="row"><div><h3>${i+1}. ${esc(name)}</h3><small>${esc(equipment)}</small><div><span class="pill">${sets} × ${min}${max!==min?'–'+max:''} ${unit}</span></div></div><span class="pill">${today.length}/${sets} logged</span></div><div class="grid" style="margin-top:12px"><div><label>${cardio?'Distance (km, optional)':'Weight (lb; 0 for bodyweight)'}</label><input id="weight-${i}" type="number" step="0.5" min="0" placeholder="0" value="${last?last.weight:''}"></div><div><label>${cardio?'Minutes':unit}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>${!cardio?`<label style="margin-top:9px">Reps left in reserve (RIR)</label><select id="rir-${i}"><option value="3">3+ reps</option><option value="2" selected>2 reps</option><option value="1">1 rep</option><option value="0">0 reps</option></select>`:''}<button class="primary full" data-log="${i}">+ Log ${cardio?'activity':'set'}</button>${today.length?`<div class="history success">${today.map(x=>`✓ ${x.weight} ${cardio?'km':'lb'} × ${x.count} ${unit}`).join('<br>')}</div>`:''}<div class="notice"><small>Progression coach</small><div>${advice}</div></div></section>`}
+function exercise(e,i){let [name,equipment,unit,sets,min,max]=e;let past=relevant(day,name),today=current(day,name),last=past.length?past[past.length-1]:null;let advice=!last?'Establish a comfortable baseline with controlled form.':last.rir>=2&&last.count>=max?'At the top of the rep range: if all sets were controlled, consider 2–5% more load next session.':last.count<min?'Below target: maintain or reduce resistance and prioritize form.':'Keep the same load and work toward the top of the range.';let cardio=unit==='minutes';return `<section class="card exercise"><div class="row"><div><h3>${i+1}. ${esc(name)}</h3><small>${esc(equipment)}</small><div><span class="pill">${sets} × ${min}${max!==min?'–'+max:''} ${unit}</span></div></div><span class="pill">${today.length}/${sets} logged</span></div><div class="grid" style="margin-top:12px"><div><label>${cardio?'Distance (km, optional)':'Weight (lb; 0 for bodyweight)'}</label><input id="weight-${i}" type="number" step="0.5" min="0" placeholder="0" value="${last?last.weight:''}"></div><div><label>${cardio?'Minutes':unit}</label><input id="count-${i}" data-reps="${i}" type="number" min="1" value="${db.repDefaults[name]??(last?last.count:min)}"></div></div>${!cardio?`<label style="margin-top:9px">Reps left in reserve (RIR)</label><select id="rir-${i}"><option value="3">3+ reps</option><option value="2" selected>2 reps</option><option value="1">1 rep</option><option value="0">0 reps</option></select>`:''}<button class="primary full" data-log="${i}">+ Log ${cardio?'activity':'set'}</button>${today.length?`<div class="history success">${today.map(x=>`✓ ${x.weight} ${cardio?'km':'lb'} × ${x.count} ${unit}`).join('<br>')}</div>`:''}<div class="notice"><small>Progression coach</small><div>${advice}</div></div></section>`}
 function logExercise(i){let e=PROGRAM[day].ex[i],weight=Number($('weight-'+i).value||0),count=Number($('count-'+i).value),rir=$('rir-'+i)?Number($('rir-'+i).value):null;if(!Number.isFinite(weight)||weight<0||!Number.isFinite(count)||count<=0){alert('Enter valid values.');return}db.logs.push({date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:session(day),name:e[0],equipment:e[1],unit:e[2],weight,count,rir});save();render()}
 function progress(){let exercises=[...new Set(db.logs.map(x=>x.name))];app.innerHTML=`<h2>Progress</h2><div class="grid"><div class="card"><small>Logged sets</small><div class="stat">${db.logs.length}</div></div><div class="card"><small>Sessions</small><div class="stat">${new Set(db.logs.map(x=>x.day+'-'+x.session)).size}</div></div></div>${exercises.length?`<label>Exercise history</label><select id="history-select">${exercises.map(x=>`<option>${esc(x)}</option>`).join('')}</select><div class="card" id="history"></div>`:'<div class="card">Log your first workout to see progression.</div>'}`;if($('history-select')){$('history-select').onchange=renderHistory;renderHistory()}}
 function setRef(code){
@@ -31,6 +31,7 @@ function editSet(code){
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
  db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
+ db.repDefaults[x.name]=c;
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
 }
@@ -66,6 +67,7 @@ db.completed=db.completed||[];
 db.started=db.started||{};
 db.setTargets=db.setTargets||{};
 db.exerciseUnits=db.exerciseUnits||{};
+db.repDefaults=db.repDefaults||{};
 let lastSetAction=null;
 const EN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ES=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
@@ -133,6 +135,10 @@ function workout(){
  ${!locked?`<button class="primary full" id="finish">${tr('Finish session / start next','Finalizar sesión / iniciar siguiente')}</button>`:''}`;
  document.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{day=b.dataset.day;render()});
  document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>logExercise(Number(b.dataset.log)));
+ document.querySelectorAll('[data-reps]').forEach(el=>el.onchange=()=>{
+   const i=Number(el.dataset.reps),name=PROGRAM[day].ex[i][0],v=Number(el.value);
+   if(Number.isFinite(v)&&v>0){db.repDefaults[name]=v;save();}
+ });
  document.querySelectorAll('[data-exunit]').forEach(b=>b.onchange=()=>{
    const i=Number(b.dataset.exunit),name=PROGRAM[day].ex[i][0],prev=exerciseUnit(name),next=b.value;
    const field=$('weight-'+i);
@@ -162,8 +168,8 @@ function exercise(e,i,locked){
  ${!cardio?`<div class="row" style="margin-top:8px"><label>${tr('Exercise weight unit','Unidad de peso del ejercicio')}</label><select data-exunit="${i}" style="width:100px" ${locked?'disabled':''}><option value="lb" ${exUnit==='lb'?'selected':''}>lb</option><option value="kg" ${exUnit==='kg'?'selected':''}>kg</option></select></div>`:''}
  <div class="row" style="margin-top:8px"><label>${tr('Planned sets (1–15)','Series planeadas (1–15)')}</label><select data-target="${i}" style="width:90px" ${locked?'disabled':''}>${Array.from({length:15},(_,j)=>`<option value="${j+1}" ${count===j+1?'selected':''}>${j+1}</option>`).join('')}</select></div>
  <div class="pill">${completedSets}/${count} ${tr('logged','registradas')}</div>
- ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+exUnit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>
- ${!cardio?`<label style="margin-top:9px">RIR</label><select id="rir-${i}"><option value="3">3+</option><option value="2" selected>2</option><option value="1">1</option><option value="0">0</option></select>`:''}
+ ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+exUnit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" data-reps="${i}" type="number" min="1" value="${db.repDefaults[name]??(last?last.count:min)}"></div></div>
+
  <button class="primary full" data-log="${i}" ${completedSets>=count?'disabled':''}>+ ${tr('Log set','Registrar serie')}</button>`:''}
  ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?x.weight:toDisplay(x.weight,exUnit)} ${cardio?'km':exUnit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
  ${!locked&&lastSetAction&&lastSetAction.day===day&&lastSetAction.session===session(day)&&lastSetAction.name===name?`<button class="undo-set" data-undo="${i}">${tr('Undo last set change','Deshacer último cambio')}</button>`:''}</section>`;
@@ -172,10 +178,11 @@ function logExercise(i){
  const e=PROGRAM[day].ex[i],n=session(day);
  if(completed(day,n))return alert(tr('Session locked.','Sesión bloqueada.'));
  if(current(day,e[0]).length>=target(day,e[0]))return alert(tr('Planned sets reached.','Series planeadas completas.'));
- const raw=Number($('weight-'+i).value||0),count=Number($('count-'+i).value),rir=$('rir-'+i)?Number($('rir-'+i).value):null;
+ const raw=Number($('weight-'+i).value||0),count=Number($('count-'+i).value);
  if(!Number.isFinite(raw)||raw<0||!Number.isFinite(count)||count<=0)return alert(tr('Enter valid values.','Ingresa valores válidos.'));
- const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:toLbs(raw,exerciseUnit(e[0])),count,rir};
+ const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:toLbs(raw,exerciseUnit(e[0])),count};
  db.logs.push(record);
+ db.repDefaults[e[0]]=count;
  lastSetAction={type:'add',record,day,session:n,name:e[0]};
  save();render();
 }
@@ -200,6 +207,7 @@ function editSet(code){
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
  db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
+ db.repDefaults[x.name]=c;
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
 }
@@ -240,6 +248,6 @@ function body(){
 function backup(){
  app.innerHTML=`<h2>${tr('Backup and restore','Respaldo y restauración')}</h2><div class="card"><p>${tr('Your data stays on this device. Export a backup before changing phones or clearing browser data.','Tus datos permanecen en este dispositivo. Exporta un respaldo antes de cambiar de teléfono o borrar datos.')}</p><button class="primary full" id="export">${tr('Download JSON backup','Descargar respaldo JSON')}</button><label style="margin-top:16px">${tr('Restore backup','Restaurar respaldo')}</label><input type="file" id="import" accept=".json,application/json"></div>`;
  $('export').onclick=()=>{const blob=new Blob([JSON.stringify({version:'1.1',...db},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fitclimb-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
- $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{},exerciseUnits:d.exerciseUnits||{}};save();render()}}catch(e){alert(e.message)}};
+ $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{},exerciseUnits:d.exerciseUnits||{},repDefaults:d.repDefaults||{}};save();render()}}catch(e){alert(e.message)}};
 }
 render();
