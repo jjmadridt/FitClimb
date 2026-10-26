@@ -119,7 +119,7 @@ function muscleArt(n){
 function render(){
  document.documentElement.lang=db.settings.lang;
  document.getElementById('language-toggle').value=db.settings.lang;
- document.getElementById('language-toggle').onchange=e=>{db.settings.lang=e.target.value;save();render()};
+ document.getElementById('language-toggle').onchange=e=>{db.settings.lang=e.target.value;save();render();if(window.trainlabTranslate)window.trainlabTranslate()};
  document.getElementById('tabs').innerHTML=['Workout','Progress','Body','Backup'].map(t=>`<button class="${t===tab?'active':''}" data-tab="${t}">${({Workout:tr('Workout','Rutina'),Progress:tr('Progress','Progreso'),Body:tr('Body','Cuerpo'),Backup:tr('Backup','Respaldo')})[t]}</button>`).join('');
  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render()});
  if(tab==='Workout')workout();if(tab==='Progress')progress();if(tab==='Body')body();if(tab==='Backup')backup();
