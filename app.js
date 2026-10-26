@@ -10,6 +10,49 @@ function workout(){let p=PROGRAM[day];app.innerHTML=`<div class="days">${Object.
 function exercise(e,i){let [name,equipment,unit,sets,min,max]=e;let past=relevant(day,name),today=current(day,name),last=past.length?past[past.length-1]:null;let advice=!last?'Establish a comfortable baseline with controlled form.':last.rir>=2&&last.count>=max?'At the top of the rep range: if all sets were controlled, consider 2–5% more load next session.':last.count<min?'Below target: maintain or reduce resistance and prioritize form.':'Keep the same load and work toward the top of the range.';let cardio=unit==='minutes';return `<section class="card exercise"><div class="row"><div><h3>${i+1}. ${esc(name)}</h3><small>${esc(equipment)}</small><div><span class="pill">${sets} × ${min}${max!==min?'–'+max:''} ${unit}</span></div></div><span class="pill">${today.length}/${sets} logged</span></div><div class="grid" style="margin-top:12px"><div><label>${cardio?'Distance (km, optional)':'Weight (lb; 0 for bodyweight)'}</label><input id="weight-${i}" type="number" step="0.5" min="0" placeholder="0" value="${last?last.weight:''}"></div><div><label>${cardio?'Minutes':unit}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>${!cardio?`<label style="margin-top:9px">Reps left in reserve (RIR)</label><select id="rir-${i}"><option value="3">3+ reps</option><option value="2" selected>2 reps</option><option value="1">1 rep</option><option value="0">0 reps</option></select>`:''}<button class="primary full" data-log="${i}">+ Log ${cardio?'activity':'set'}</button>${today.length?`<div class="history success">${today.map(x=>`✓ ${x.weight} ${cardio?'km':'lb'} × ${x.count} ${unit}`).join('<br>')}</div>`:''}<div class="notice"><small>Progression coach</small><div>${advice}</div></div></section>`}
 function logExercise(i){let e=PROGRAM[day].ex[i],weight=Number($('weight-'+i).value||0),count=Number($('count-'+i).value),rir=$('rir-'+i)?Number($('rir-'+i).value):null;if(!Number.isFinite(weight)||weight<0||!Number.isFinite(count)||count<=0){alert('Enter valid values.');return}db.logs.push({date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:session(day),name:e[0],equipment:e[1],unit:e[2],weight,count,rir});save();render()}
 function progress(){let exercises=[...new Set(db.logs.map(x=>x.name))];app.innerHTML=`<h2>Progress</h2><div class="grid"><div class="card"><small>Logged sets</small><div class="stat">${db.logs.length}</div></div><div class="card"><small>Sessions</small><div class="stat">${new Set(db.logs.map(x=>x.day+'-'+x.session)).size}</div></div></div>${exercises.length?`<label>Exercise history</label><select id="history-select">${exercises.map(x=>`<option>${esc(x)}</option>`).join('')}</select><div class="card" id="history"></div>`:'<div class="card">Log your first workout to see progression.</div>'}`;if($('history-select')){$('history-select').onchange=renderHistory;renderHistory()}}
+function setRef(code){
+ const [i,j]=String(code).split(':').map(Number);
+ const e=PROGRAM[day]?.ex[i];
+ if(!e||!Number.isInteger(j))return null;
+ const n=session(day);
+ if(completed(day,n))return null;
+ const matches=db.logs.map((x,k)=>({...x,_index:k})).filter(x=>x.day===day&&x.session===n&&x.name===e[0]);
+ return matches[j]||null;
+}
+function editSet(code){
+ const x=setRef(code);if(!x)return;
+ const cardio=x.unit==='minutes';
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':db.settings.unit})`,String(cardio?x.weight:displayed(x.weight)));
+ if(weight===null)return;
+ const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
+ if(count===null)return;
+ const w=Number(weight),c=Number(count);
+ if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
+ const before={...db.logs[x._index]};
+ db.logs[x._index]={...before,weight:cardio?w:lbs(w),count:c};
+ lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
+ save();render();
+}
+function deleteSet(code){
+ const x=setRef(code);if(!x)return;
+ if(!confirm(tr('Delete this recorded set?','¿Eliminar esta serie registrada?')))return;
+ const before={...db.logs[x._index]};
+ db.logs.splice(x._index,1);
+ lastSetAction={type:'delete',record:before,index:x._index,day,session:session(day),name:x.name};
+ save();render();
+}
+function undoSet(i){
+ const a=lastSetAction,e=PROGRAM[day].ex[i];
+ if(!a||a.day!==day||a.session!==session(day)||a.name!==e[0]||completed(day,session(day)))return;
+ if(a.type==='add'){
+   const k=db.logs.indexOf(a.record);
+   // Object identity survives within the current page session only.
+   if(k>=0)db.logs.splice(k,1);
+   else{const j=db.logs.findIndex(x=>x.timestamp===a.record.timestamp&&x.name===a.name&&x.session===a.session);if(j>=0)db.logs.splice(j,1)}
+ }else if(a.type==='delete')db.logs.splice(a.index,0,a.record);
+ else if(a.type==='edit')db.logs[a.index]=a.record;
+ lastSetAction=null;save();render();
+}
 function renderHistory(){let name=$('history-select').value,rows=db.logs.filter(x=>x.name===name).slice(-30).reverse();$('history').innerHTML=`<h3>${esc(name)}</h3><div class="history">${rows.map(x=>`${x.date} · ${x.weight} ${x.unit==='minutes'?'km':'lb'} × ${x.count} ${x.unit}${x.rir===null?'':' · RIR '+x.rir}`).join('<hr>')}</div>`}
 function body(){app.innerHTML=`<h2>Body composition</h2><p class="muted">Strength and waist trend matter more than a target weight.</p><div class="card"><div class="grid"><div><label>Waist (inches)</label><input id="waist" type="number" step="0.1"></div><div><label>Body weight (lb, optional)</label><input id="mass" type="number" step="0.1"></div></div><button class="primary full" id="save-body">Save measurement</button></div><div class="card"><h3>Measurement history</h3><div class="history">${db.body.slice().reverse().map(x=>`${x.date} · Waist ${x.waist??'—'} in · Weight ${x.mass??'—'} lb`).join('<hr>')||'No measurements yet.'}</div></div>`;$('save-body').onclick=()=>{let waist=$('waist').value,mass=$('mass').value;if(!waist&&!mass)return alert('Enter at least one measurement.');if((waist&&Number(waist)<=0)||(mass&&Number(mass)<=0))return alert('Enter positive measurements.');db.body.push({date:new Date().toISOString().slice(0,10),waist:waist?Number(waist):null,mass:mass?Number(mass):null});save();render()}}
 function backup(){app.innerHTML=`<h2>Backup and restore</h2><div class="card"><p>Data is stored locally on this device. Export backups regularly, especially before changing phones or clearing browser data.</p><button class="primary full" id="export">Download JSON backup</button><label style="margin-top:16px">Restore a previous FitClimb backup</label><input type="file" id="import" accept=".json,application/json"></div><div class="card"><h3>About FitClimb V1</h3><p>Works offline after the first successful visit on a hosted HTTPS site. No account, subscription or server database. Progression suggestions are rules of thumb, not medical or individualized coaching.</p></div>`;$('export').onclick=()=>{let blob=new Blob([JSON.stringify({version:1,...db},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fitclimb-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};$('import').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||typeof d.session!=='object')throw Error('Invalid backup');if(confirm('Replace current data with this backup?')){db={logs:d.logs,body:d.body,session:d.session};save();render();alert('Backup restored')}}catch(e){alert('Could not import: '+e.message)}}}
@@ -21,6 +64,7 @@ db.settings=db.settings||{lang:'en',unit:'lb'};
 db.completed=db.completed||[];
 db.started=db.started||{};
 db.setTargets=db.setTargets||{};
+let lastSetAction=null;
 const EN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ES=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 const TITLES={Monday:'Fuerza de piernas',Tuesday:'Tren superior y abdomen',Wednesday:'Bicicleta aeróbica',Thursday:'Resistencia complementaria',Friday:'Recuperación',Saturday:'Rodada en equipo',Sunday:'Recuperación'};
@@ -84,6 +128,9 @@ function workout(){
  ${!locked?`<button class="primary full" id="finish">${tr('Finish session / start next','Finalizar sesión / iniciar siguiente')}</button>`:''}`;
  document.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{day=b.dataset.day;render()});
  document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>logExercise(Number(b.dataset.log)));
+ document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editSet(b.dataset.edit));
+ document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteSet(b.dataset.delete));
+ document.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>undoSet(Number(b.dataset.undo)));
  document.querySelectorAll('[data-target]').forEach(b=>b.onchange=()=>{db.setTargets[day+'|'+PROGRAM[day].ex[Number(b.dataset.target)][0]]=Number(b.value);save();render()});
  if($('start-time'))$('start-time').onchange=e=>{if(e.target.value){db.started[startKey(day,n)]=new Date(e.target.value).toISOString();save()}};
  if($('finish'))$('finish').onclick=()=>{
@@ -105,7 +152,8 @@ function exercise(e,i,locked){
  ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+db.settings.unit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>
  ${!cardio?`<label style="margin-top:9px">RIR</label><select id="rir-${i}"><option value="3">3+</option><option value="2" selected>2</option><option value="1">1</option><option value="0">0</option></select>`:''}
  <button class="primary full" data-log="${i}" ${completedSets>=count?'disabled':''}>+ ${tr('Log set','Registrar serie')}</button>`:''}
- ${today.length?`<div class="history success">${today.map(x=>`✓ ${cardio?x.weight:displayed(x.weight)} ${cardio?'km':db.settings.unit} × ${x.count} ${esc(unit)}`).join('<br>')}</div>`:''}</section>`;
+ ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?x.weight:displayed(x.weight)} ${cardio?'km':db.settings.unit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
+ ${!locked&&lastSetAction&&lastSetAction.day===day&&lastSetAction.session===session(day)&&lastSetAction.name===name?`<button class="undo-set" data-undo="${i}">${tr('Undo last set change','Deshacer último cambio')}</button>`:''}</section>`;
 }
 function logExercise(i){
  const e=PROGRAM[day].ex[i],n=session(day);
@@ -113,8 +161,53 @@ function logExercise(i){
  if(current(day,e[0]).length>=target(day,e[0]))return alert(tr('Planned sets reached.','Series planeadas completas.'));
  const raw=Number($('weight-'+i).value||0),count=Number($('count-'+i).value),rir=$('rir-'+i)?Number($('rir-'+i).value):null;
  if(!Number.isFinite(raw)||raw<0||!Number.isFinite(count)||count<=0)return alert(tr('Enter valid values.','Ingresa valores válidos.'));
- db.logs.push({date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:lbs(raw),count,rir});
+ const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:lbs(raw),count,rir};
+ db.logs.push(record);
+ lastSetAction={type:'add',record,day,session:n,name:e[0]};
  save();render();
+}
+function setRef(code){
+ const [i,j]=String(code).split(':').map(Number);
+ const e=PROGRAM[day]?.ex[i];
+ if(!e||!Number.isInteger(j))return null;
+ const n=session(day);
+ if(completed(day,n))return null;
+ const matches=db.logs.map((x,k)=>({...x,_index:k})).filter(x=>x.day===day&&x.session===n&&x.name===e[0]);
+ return matches[j]||null;
+}
+function editSet(code){
+ const x=setRef(code);if(!x)return;
+ const cardio=x.unit==='minutes';
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':db.settings.unit})`,String(cardio?x.weight:displayed(x.weight)));
+ if(weight===null)return;
+ const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
+ if(count===null)return;
+ const w=Number(weight),c=Number(count);
+ if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
+ const before={...db.logs[x._index]};
+ db.logs[x._index]={...before,weight:cardio?w:lbs(w),count:c};
+ lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
+ save();render();
+}
+function deleteSet(code){
+ const x=setRef(code);if(!x)return;
+ if(!confirm(tr('Delete this recorded set?','¿Eliminar esta serie registrada?')))return;
+ const before={...db.logs[x._index]};
+ db.logs.splice(x._index,1);
+ lastSetAction={type:'delete',record:before,index:x._index,day,session:session(day),name:x.name};
+ save();render();
+}
+function undoSet(i){
+ const a=lastSetAction,e=PROGRAM[day].ex[i];
+ if(!a||a.day!==day||a.session!==session(day)||a.name!==e[0]||completed(day,session(day)))return;
+ if(a.type==='add'){
+   const k=db.logs.indexOf(a.record);
+   // Object identity survives within the current page session only.
+   if(k>=0)db.logs.splice(k,1);
+   else{const j=db.logs.findIndex(x=>x.timestamp===a.record.timestamp&&x.name===a.name&&x.session===a.session);if(j>=0)db.logs.splice(j,1)}
+ }else if(a.type==='delete')db.logs.splice(a.index,0,a.record);
+ else if(a.type==='edit')db.logs[a.index]=a.record;
+ lastSetAction=null;save();render();
 }
 function renderHistory(){
  let name=$('history-select').value,rows=db.logs.filter(x=>x.name===name).slice(-30).reverse();
