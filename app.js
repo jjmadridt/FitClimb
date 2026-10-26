@@ -22,14 +22,15 @@ function setRef(code){
 function editSet(code){
  const x=setRef(code);if(!x)return;
  const cardio=x.unit==='minutes';
- const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':db.settings.unit})`,String(cardio?x.weight:displayed(x.weight)));
+ const exUnit=exerciseUnit(x.name);
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':exUnit})`,String(cardio?x.weight:toDisplay(x.weight,exUnit)));
  if(weight===null)return;
  const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
  if(count===null)return;
  const w=Number(weight),c=Number(count);
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
- db.logs[x._index]={...before,weight:cardio?w:lbs(w),count:c};
+ db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
 }
@@ -64,6 +65,7 @@ db.settings=db.settings||{lang:'en',unit:'lb'};
 db.completed=db.completed||[];
 db.started=db.started||{};
 db.setTargets=db.setTargets||{};
+db.exerciseUnits=db.exerciseUnits||{};
 let lastSetAction=null;
 const EN=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const ES=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
@@ -80,6 +82,9 @@ const exerciseName=n=>db.settings.lang==='es'?(NAMES[n]||n):n;
 const converted=n=>db.settings.unit==='kg'?(n/2.2046226218):n;
 const displayed=n=>Number(converted(n).toFixed(2));
 const lbs=n=>db.settings.unit==='kg'?n*2.2046226218:n;
+const exerciseUnit=n=>db.exerciseUnits[n]||db.settings.unit;
+const toDisplay=(n,u)=>Number((u==='kg'?n/2.2046226218:n).toFixed(2));
+const toLbs=(n,u)=>u==='kg'?n*2.2046226218:n;
 const completed=(d,n)=>db.completed.some(x=>x.day===d&&x.session===n);
 const startKey=(d,n)=>d+'-'+n;
 const getStart=(d,n)=>db.started[startKey(d,n)]||new Date().toISOString();
@@ -128,6 +133,13 @@ function workout(){
  ${!locked?`<button class="primary full" id="finish">${tr('Finish session / start next','Finalizar sesión / iniciar siguiente')}</button>`:''}`;
  document.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{day=b.dataset.day;render()});
  document.querySelectorAll('[data-log]').forEach(b=>b.onclick=()=>logExercise(Number(b.dataset.log)));
+ document.querySelectorAll('[data-exunit]').forEach(b=>b.onchange=()=>{
+   const i=Number(b.dataset.exunit),name=PROGRAM[day].ex[i][0],prev=exerciseUnit(name),next=b.value;
+   const field=$('weight-'+i);
+   const currentValue=field?field.value:'';
+   db.exerciseUnits[name]=next;save();render();
+   if(currentValue!==''&&$('weight-'+i))$('weight-'+i).value=String(toDisplay(toLbs(Number(currentValue),prev),next));
+ });
  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>editSet(b.dataset.edit));
  document.querySelectorAll('[data-delete]').forEach(b=>b.onclick=()=>deleteSet(b.dataset.delete));
  document.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>undoSet(Number(b.dataset.undo)));
@@ -144,15 +156,16 @@ function workout(){
 function exercise(e,i,locked){
  const [name,equipment,unit,sets,min,max]=e;
  const count=target(day,name),past=relevant(day,name),today=current(day,name),last=past.length?past[past.length-1]:null;
- const cardio=unit==='minutes',weight=last?displayed(last.weight):'';
+ const cardio=unit==='minutes',exUnit=exerciseUnit(name),weight=last?toDisplay(last.weight,exUnit):'';
  const completedSets=today.length;
  return `<section class="card exercise"><div class="row"><div><h3>${i+1}. ${esc(exerciseName(name))}</h3><small>${esc(equipment)}</small><div><span class="pill">${min}${max!==min?'–'+max:''} ${esc(unit)}</span></div></div>${muscleArt(name)}</div>
+ ${!cardio?`<div class="row" style="margin-top:8px"><label>${tr('Exercise weight unit','Unidad de peso del ejercicio')}</label><select data-exunit="${i}" style="width:100px" ${locked?'disabled':''}><option value="lb" ${exUnit==='lb'?'selected':''}>lb</option><option value="kg" ${exUnit==='kg'?'selected':''}>kg</option></select></div>`:''}
  <div class="row" style="margin-top:8px"><label>${tr('Planned sets (1–15)','Series planeadas (1–15)')}</label><select data-target="${i}" style="width:90px" ${locked?'disabled':''}>${Array.from({length:15},(_,j)=>`<option value="${j+1}" ${count===j+1?'selected':''}>${j+1}</option>`).join('')}</select></div>
  <div class="pill">${completedSets}/${count} ${tr('logged','registradas')}</div>
- ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+db.settings.unit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>
+ ${!locked?`<div class="grid" style="margin-top:12px"><div><label>${cardio?tr('Distance (km)','Distancia (km)'):tr('Weight','Peso')+' ('+exUnit+')'}</label><input id="weight-${i}" type="number" step="0.5" min="0" value="${cardio?(last?last.weight:''):weight}" placeholder="0"></div><div><label>${cardio?tr('Minutes','Minutos'):esc(unit)}</label><input id="count-${i}" type="number" min="1" value="${min}"></div></div>
  ${!cardio?`<label style="margin-top:9px">RIR</label><select id="rir-${i}"><option value="3">3+</option><option value="2" selected>2</option><option value="1">1</option><option value="0">0</option></select>`:''}
  <button class="primary full" data-log="${i}" ${completedSets>=count?'disabled':''}>+ ${tr('Log set','Registrar serie')}</button>`:''}
- ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?x.weight:displayed(x.weight)} ${cardio?'km':db.settings.unit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
+ ${today.length?`<div class="set-list" aria-label="${tr('Recorded sets','Series registradas')}">${today.map((x,j)=>`<div class="set-row"><span class="set-text"><b>${tr('Set','Serie')} ${j+1}</b> · ${cardio?x.weight:toDisplay(x.weight,exUnit)} ${cardio?'km':exUnit} × ${x.count} ${esc(unit)}</span>${!locked?`<button class="set-edit" data-edit="${i}:${j}" aria-label="${tr('Edit set','Editar serie')} ${j+1}">✎</button><button class="set-delete" data-delete="${i}:${j}" aria-label="${tr('Delete set','Eliminar serie')} ${j+1}">✕</button>`:''}</div>`).join('')}</div>`:''}
  ${!locked&&lastSetAction&&lastSetAction.day===day&&lastSetAction.session===session(day)&&lastSetAction.name===name?`<button class="undo-set" data-undo="${i}">${tr('Undo last set change','Deshacer último cambio')}</button>`:''}</section>`;
 }
 function logExercise(i){
@@ -161,7 +174,7 @@ function logExercise(i){
  if(current(day,e[0]).length>=target(day,e[0]))return alert(tr('Planned sets reached.','Series planeadas completas.'));
  const raw=Number($('weight-'+i).value||0),count=Number($('count-'+i).value),rir=$('rir-'+i)?Number($('rir-'+i).value):null;
  if(!Number.isFinite(raw)||raw<0||!Number.isFinite(count)||count<=0)return alert(tr('Enter valid values.','Ingresa valores válidos.'));
- const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:lbs(raw),count,rir};
+ const record={date:new Date().toISOString().slice(0,10),timestamp:Date.now(),day,session:n,name:e[0],equipment:e[1],unit:e[2],weight:e[2]==='minutes'?raw:toLbs(raw,exerciseUnit(e[0])),count,rir};
  db.logs.push(record);
  lastSetAction={type:'add',record,day,session:n,name:e[0]};
  save();render();
@@ -178,14 +191,15 @@ function setRef(code){
 function editSet(code){
  const x=setRef(code);if(!x)return;
  const cardio=x.unit==='minutes';
- const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':db.settings.unit})`,String(cardio?x.weight:displayed(x.weight)));
+ const exUnit=exerciseUnit(x.name);
+ const weight=prompt(tr('Correct weight / distance','Corregir peso / distancia')+` (${cardio?'km':exUnit})`,String(cardio?x.weight:toDisplay(x.weight,exUnit)));
  if(weight===null)return;
  const count=prompt(tr('Correct repetitions / duration','Corregir repeticiones / duración'),String(x.count));
  if(count===null)return;
  const w=Number(weight),c=Number(count);
  if(weight.trim()===''||count.trim()===''||!Number.isFinite(w)||w<0||!Number.isFinite(c)||c<=0){alert(tr('Invalid values. No changes saved.','Valores inválidos. No se guardaron cambios.'));return}
  const before={...db.logs[x._index]};
- db.logs[x._index]={...before,weight:cardio?w:lbs(w),count:c};
+ db.logs[x._index]={...before,weight:cardio?w:toLbs(w,exUnit),count:c};
  lastSetAction={type:'edit',record:before,index:x._index,day,session:session(day),name:x.name};
  save();render();
 }
@@ -211,7 +225,7 @@ function undoSet(i){
 }
 function renderHistory(){
  let name=$('history-select').value,rows=db.logs.filter(x=>x.name===name).slice(-30).reverse();
- $('history').innerHTML=`<h3>${esc(exerciseName(name))}</h3><div class="history">${rows.map(x=>`${esc(x.date)} · ${x.unit==='minutes'?x.weight:displayed(x.weight)} ${x.unit==='minutes'?'km':db.settings.unit} × ${x.count} ${esc(x.unit)}`).join('<hr>')}</div>`;
+ $('history').innerHTML=`<h3>${esc(exerciseName(name))}</h3><div class="history">${rows.map(x=>`${esc(x.date)} · ${x.unit==='minutes'?x.weight:toDisplay(x.weight,exerciseUnit(x.name))} ${x.unit==='minutes'?'km':exerciseUnit(x.name)} × ${x.count} ${esc(x.unit)}`).join('<hr>')}</div>`;
 }
 function progress(){
  let exercises=[...new Set(db.logs.map(x=>x.name))];
@@ -226,6 +240,6 @@ function body(){
 function backup(){
  app.innerHTML=`<h2>${tr('Backup and restore','Respaldo y restauración')}</h2><div class="card"><p>${tr('Your data stays on this device. Export a backup before changing phones or clearing browser data.','Tus datos permanecen en este dispositivo. Exporta un respaldo antes de cambiar de teléfono o borrar datos.')}</p><button class="primary full" id="export">${tr('Download JSON backup','Descargar respaldo JSON')}</button><label style="margin-top:16px">${tr('Restore backup','Restaurar respaldo')}</label><input type="file" id="import" accept=".json,application/json"></div>`;
  $('export').onclick=()=>{const blob=new Blob([JSON.stringify({version:'1.1',...db},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='fitclimb-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
- $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{}};save();render()}}catch(e){alert(e.message)}};
+ $('import').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const d=JSON.parse(await f.text());if(!Array.isArray(d.logs)||!Array.isArray(d.body)||!d.session||typeof d.session!=='object')throw Error('Invalid backup');if(confirm(tr('Replace current data?','¿Reemplazar los datos actuales?'))){db={logs:d.logs,body:d.body,session:d.session,settings:d.settings||{lang:'en',unit:'lb'},completed:d.completed||[],started:d.started||{},setTargets:d.setTargets||{},exerciseUnits:d.exerciseUnits||{}};save();render()}}catch(e){alert(e.message)}};
 }
 render();
